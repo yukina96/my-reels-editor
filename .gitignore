@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+.pytest_cache/
+outputs/
+.cache/
+# Never commit user media or local credentials, including CLI outputs.
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+*.mp3
+*.wav
+*.m4a
+*.ogg
+*.flac
+*.aac
+*.ass
+*.srt
+.env
+.env.*
+.streamlit/secrets.toml
