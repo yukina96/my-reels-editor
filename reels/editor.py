@@ -98,7 +98,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def edit(source: Path, output: Path, options: Options | None = None,
-         bgm: Path | None = None, progress: Callable[[str], None] = lambda _: None) -> Path:
+         bgm: Path | None = None, progress: Callable[[str], None] = lambda _: None, *,
+         cut_silence: bool = True, allow_empty_captions: bool = False,
+         max_duration: float | None = None) -> Path:
     options = options or Options()
     source, output = source.resolve(), output.resolve()
     bgm = bgm.resolve() if bgm else None
@@ -130,7 +132,7 @@ def edit(source: Path, output: Path, options: Options | None = None,
                                    "-f", "null", "-"], capture_output=True, text=True)
         if detected.returncode:
             raise RuntimeError(detected.stderr[-5000:])
-        ranges = keep_ranges(detected.stderr, duration, options.padding)
+        ranges = keep_ranges(detected.stderr, duration, options.padding) if cut_silence else [(0.0, duration)]
         if not ranges or sum(b - a for a, b in ranges) < 0.5:
             raise ValueError("残せる音声がありません。無音判定のしきい値を下げてください")
         progress(f"{len(ranges)} 区間を結合しています")
@@ -160,7 +162,7 @@ def edit(source: Path, output: Path, options: Options | None = None,
                 raise RuntimeError("音声認識モデルを読み込めません。初回は Hugging Face への接続とモデル保存先の空き容量が必要です。字幕オフでも編集できます。") from exc
             segments, _ = model.transcribe(str(wav), language="ja", beam_size=5, vad_filter=True)
             captions = [(s.start, s.end, s.text) for s in segments]
-            if not captions:
+            if not captions and not allow_empty_captions:
                 raise RuntimeError("文字起こし結果が空です。音声を確認するか字幕をオフにしてください")
             write_ass(subtitles, captions, options.font)
         progress("字幕・BGMを合成して MP4 を出力しています")
@@ -178,6 +180,8 @@ def edit(source: Path, output: Path, options: Options | None = None,
             # Generated temporary path contains no user-controlled filter syntax.
             args += ["-vf", f"ass={subtitles}"]
         final = work / "result.mp4"
+        if max_duration is not None:
+            args += ["-t", str(max_duration)]
         args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-threads", "2",
                  "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(final)]
         run(args)
