@@ -21,6 +21,8 @@ def processing_lock():
 def clear_media():
     st.session_state.pop('result', None)
     st.session_state.pop('result_time', None)
+    for key in ('plan', 'durations', 'plan_time', 'plan_signature'):
+        st.session_state.pop(key, None)
     st.session_state['upload_generation'] = st.session_state.get('upload_generation', 0) + 1
 
 
@@ -31,44 +33,48 @@ st.caption('クラウド版では素材をサーバーへ送信します。横�
 st.info('無料クラウド向け: 動画は60秒・50MB以下、BGMは50MB以下。文字起こしは軽量な tiny を使います。')
 if st.button('素材と完成動画を消去', on_click=clear_media):
     st.rerun()
-generation = st.session_state.get('upload_generation', 0)
-video = st.file_uploader('動画素材', type=['mp4', 'mov', 'mkv', 'webm', 'avi'], key=f'video_{generation}')
-bgm = st.file_uploader('BGM（任意）', type=['mp3', 'wav', 'm4a', 'ogg', 'flac'], key=f'bgm_{generation}')
-rights = st.checkbox('BGM の著作権・Instagram 投稿への利用条件を確認しました') if bgm else True
-with st.expander('編集設定'):
-    subtitles = st.checkbox('日本語字幕を入れる', value=True)
-    threshold = st.slider('無音判定（dB）', -60, -10, -35)
-    silence = st.slider('カット対象の無音の長さ（秒）', 0.2, 5.0, 0.7, 0.1)
-    volume = st.slider('BGM の音量', 0.0, 0.5, 0.12, 0.01)
-st.caption('初回は無料モデルを取得します。API料金は不要です。完成動画はこのセッションのみで保持し、15分でダウンロード表示を終了します。')
-if st.button('動画を作成', type='primary', disabled=not video or not rights):
-    lock = processing_lock()
-    if not lock.acquire(blocking=False):
-        st.warning('現在ほかの処理を実行中です。しばらく待って再実行してください。')
-    else:
-        st.session_state.pop('result', None)
-        try:
-            with st.status('編集中', expanded=True) as status:
-                result = render_upload(video.getvalue(), Path(video.name).suffix.lower(),
-                    Options(model='tiny', subtitles=subtitles, silence_db=threshold,
-                            min_silence=silence, bgm_volume=volume),
-                    bgm.getvalue() if bgm else None,
-                    Path(bgm.name).suffix.lower() if bgm else '.wav', st.write)
+workflow = st.radio('編集方法', ['単一動画（従来）', '複数動画から構成'])
+if workflow == '複数動画から構成':
+    from reels.multi_ui import draw
+    draw(processing_lock(), clear_media)
+else:
+    generation = st.session_state.get('upload_generation', 0)
+    video = st.file_uploader('動画素材', type=['mp4', 'mov', 'mkv', 'webm', 'avi'], key=f'video_{generation}')
+    bgm = st.file_uploader('BGM（任意）', type=['mp3', 'wav', 'm4a', 'ogg', 'flac'], key=f'bgm_{generation}')
+    rights = st.checkbox('BGM の著作権・Instagram 投稿への利用条件を確認しました') if bgm else True
+    with st.expander('編集設定'):
+        subtitles = st.checkbox('日本語字幕を入れる', value=True)
+        threshold = st.slider('無音判定（dB）', -60, -10, -35)
+        silence = st.slider('カット対象の無音の長さ（秒）', 0.2, 5.0, 0.7, 0.1)
+        volume = st.slider('BGM の音量', 0.0, 0.5, 0.12, 0.01)
+    st.caption('初回は無料モデルを取得します。API料金は不要です。完成動画はこのセッションのみで保持し、15分でダウンロード表示を終了します。')
+    if st.button('動画を作成', type='primary', disabled=not video or not rights):
+        lock = processing_lock()
+        if not lock.acquire(blocking=False):
+            st.warning('現在ほかの処理を実行中です。しばらく待って再実行してください。')
+        else:
+            st.session_state.pop('result', None)
+            try:
+                with st.status('編集中', expanded=True) as status:
+                    result = render_upload(video.getvalue(), Path(video.name).suffix.lower(),
+                        Options(model='tiny', subtitles=subtitles, silence_db=threshold,
+                                min_silence=silence, bgm_volume=volume),
+                        bgm.getvalue() if bgm else None,
+                        Path(bgm.name).suffix.lower() if bgm else '.wav', st.write)
+                    clear_media()
+                    st.session_state['result'] = result
+                    st.session_state['result_time'] = time.monotonic()
+                    status.update(label='完成しました', state='complete')
+                st.rerun()
+            except ValueError as exc:
                 clear_media()
-                st.session_state['result'] = result
-                st.session_state['result_time'] = time.monotonic()
-                status.update(label='完成しました', state='complete')
-            st.rerun()
-        except ValueError as exc:
-            clear_media()
-            st.error(str(exc))
-        except Exception:
-            clear_media()
-            # FFmpeg stderr/transcripts/paths are never shown or logged.
-            st.error('編集に失敗しました。音声のある短い動画か確認してください。字幕オフで成功する場合はモデル取得・メモリ不足の可能性があります。')
-        finally:
-            lock.release()
-
+                st.error(str(exc))
+            except Exception:
+                clear_media()
+                # FFmpeg stderr/transcripts/paths are never shown or logged.
+                st.error('編集に失敗しました。音声のある短い動画か確認してください。字幕オフで成功する場合はモデル取得・メモリ不足の可能性があります。')
+            finally:
+                lock.release()
 
 @st.fragment(run_every=60)
 def result_panel():

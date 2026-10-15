@@ -26,6 +26,14 @@ class AppTests(unittest.TestCase):
         self.assertNotIn('result', first.session_state)
         self.assertFalse(first.exception)
 
+    def test_multi_screen_requires_proposal(self):
+        app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
+        app.radio[0].set_value('複数動画から構成').run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.selectbox[0].options, ['トーク', 'Vlog', 'おまかせ'])
+        self.assertEqual(app.selectbox[1].options, ['30', '45', '60'])
+        self.assertTrue(next(b for b in app.button if b.label == '編集案を作成').disabled)
+
 
 if __name__ == '__main__':
     unittest.main()
